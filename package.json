@@ -1,0 +1,43 @@
+{
+  "name": "mimic",
+  "version": "0.1.0",
+  "description": "Drive your computer like a human — undetectable virtual input for agents, built on Linux uinput.",
+  "type": "module",
+  "bin": {
+    "mimic": "bin/mimic.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "automation",
+    "uinput",
+    "wayland",
+    "input",
+    "agent",
+    "rpa",
+    "bun",
+    "ffi"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/juicerq/mimic.git"
+  },
+  "homepage": "https://github.com/juicerq/mimic#readme",
+  "bugs": "https://github.com/juicerq/mimic/issues",
+  "license": "MIT",
+  "author": "juicerq",
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}
