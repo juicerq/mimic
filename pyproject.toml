@@ -1,0 +1,16 @@
+[project]
+name = "mimic"
+version = "0.1.0"
+description = "Controle humano do PC (mouse/teclado/tela) para agents, via uinput no KDE Wayland."
+requires-python = ">=3.9"
+dependencies = ["evdev>=1.6"]
+
+[project.scripts]
+mimic = "mimic.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["mimic"]
