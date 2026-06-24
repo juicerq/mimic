@@ -1,5 +1,5 @@
 import { EV_ABS, EV_KEY, EV_REL, EV_SYN, SYN_REPORT } from "./codes.ts";
-import { close as closeFd, ioctl, ioctlPtr, open, O_NONBLOCK, O_WRONLY, write } from "./sys.ts";
+import { close as closeFd, ioctlChecked, ioctlPtrChecked, O_NONBLOCK, O_WRONLY, open, SysError, write } from "./sys.ts";
 
 const UI_SET_EVBIT = 0x40045564;
 const UI_SET_KEYBIT = 0x40045565;
@@ -28,37 +28,65 @@ export interface DeviceSpec {
   abs?: AbsAxis[];
 }
 
-export class VirtualDevice {
+export interface VirtualDevice {
+  emit(type: number, code: number, value: number): void;
+  syn(): void;
+  close(): void;
+}
+
+export type DeviceFactory = (spec: DeviceSpec) => VirtualDevice;
+
+function openUinput(): number {
+  try {
+    return open(UINPUT_PATH, O_WRONLY | O_NONBLOCK);
+  } catch (e) {
+    if (e instanceof SysError) {
+      if (e.code === "EACCES") {
+        throw new Error("mimic: cannot open /dev/uinput: permission denied — run 'mimic setup'");
+      }
+      if (e.code === "ENOENT") {
+        throw new Error("mimic: cannot open /dev/uinput: uinput module not loaded — run 'mimic setup'");
+      }
+    }
+    throw e;
+  }
+}
+
+export class UinputDevice implements VirtualDevice {
   private readonly fd: number;
   private readonly event = Buffer.alloc(24);
 
   constructor(spec: DeviceSpec) {
-    this.fd = open(UINPUT_PATH, O_WRONLY | O_NONBLOCK);
-
-    if (spec.keys?.length) {
-      ioctl(this.fd, UI_SET_EVBIT, EV_KEY);
-      for (const code of spec.keys) ioctl(this.fd, UI_SET_KEYBIT, code);
-    }
-    if (spec.rel?.length) {
-      ioctl(this.fd, UI_SET_EVBIT, EV_REL);
-      for (const code of spec.rel) ioctl(this.fd, UI_SET_RELBIT, code);
-    }
-    if (spec.abs?.length) {
-      ioctl(this.fd, UI_SET_EVBIT, EV_ABS);
-      for (const axis of spec.abs) {
-        ioctl(this.fd, UI_SET_ABSBIT, axis.code);
-        this.setupAbs(axis);
+    this.fd = openUinput();
+    try {
+      if (spec.keys?.length) {
+        ioctlChecked(this.fd, UI_SET_EVBIT, EV_KEY, "UI_SET_EVBIT(EV_KEY)");
+        for (const code of spec.keys) ioctlChecked(this.fd, UI_SET_KEYBIT, code, "UI_SET_KEYBIT");
       }
-    }
+      if (spec.rel?.length) {
+        ioctlChecked(this.fd, UI_SET_EVBIT, EV_REL, "UI_SET_EVBIT(EV_REL)");
+        for (const code of spec.rel) ioctlChecked(this.fd, UI_SET_RELBIT, code, "UI_SET_RELBIT");
+      }
+      if (spec.abs?.length) {
+        ioctlChecked(this.fd, UI_SET_EVBIT, EV_ABS, "UI_SET_EVBIT(EV_ABS)");
+        for (const axis of spec.abs) {
+          ioctlChecked(this.fd, UI_SET_ABSBIT, axis.code, "UI_SET_ABSBIT");
+          this.setupAbs(axis);
+        }
+      }
 
-    const setup = Buffer.alloc(92);
-    setup.writeUInt16LE(BUS_USB, 0);
-    setup.writeUInt16LE(spec.vendor ?? 0x1d6b, 2);
-    setup.writeUInt16LE(spec.product ?? 0x0001, 4);
-    setup.writeUInt16LE(1, 6);
-    setup.write(spec.name.slice(0, 79), 8, "utf8");
-    ioctlPtr(this.fd, UI_DEV_SETUP, setup);
-    ioctl(this.fd, UI_DEV_CREATE);
+      const setup = Buffer.alloc(92);
+      setup.writeUInt16LE(BUS_USB, 0);
+      setup.writeUInt16LE(spec.vendor ?? 0x1d6b, 2);
+      setup.writeUInt16LE(spec.product ?? 0x0001, 4);
+      setup.writeUInt16LE(1, 6);
+      setup.write(spec.name.slice(0, 79), 8, "utf8");
+      ioctlPtrChecked(this.fd, UI_DEV_SETUP, setup, "UI_DEV_SETUP");
+      ioctlChecked(this.fd, UI_DEV_CREATE, 0, "UI_DEV_CREATE");
+    } catch (e) {
+      closeFd(this.fd);
+      throw e;
+    }
   }
 
   private setupAbs(axis: AbsAxis) {
@@ -66,7 +94,7 @@ export class VirtualDevice {
     buffer.writeUInt16LE(axis.code, 0);
     buffer.writeInt32LE(axis.min, 8);
     buffer.writeInt32LE(axis.max, 12);
-    ioctlPtr(this.fd, UI_ABS_SETUP, buffer);
+    ioctlPtrChecked(this.fd, UI_ABS_SETUP, buffer, "UI_ABS_SETUP");
   }
 
   emit(type: number, code: number, value: number) {
@@ -81,13 +109,22 @@ export class VirtualDevice {
   }
 
   close() {
+    let first: unknown;
     try {
-      ioctl(this.fd, UI_DEV_DESTROY);
-    } finally {
-      closeFd(this.fd);
+      ioctlChecked(this.fd, UI_DEV_DESTROY, 0, "UI_DEV_DESTROY");
+    } catch (e) {
+      first = e;
     }
+    try {
+      closeFd(this.fd);
+    } catch (e) {
+      if (first === undefined) first = e;
+    }
+    if (first !== undefined) throw first;
   }
 }
+
+export const createUinputDevice: DeviceFactory = (spec) => new UinputDevice(spec);
 
 export function uinputWritable(): boolean {
   try {
