@@ -13,8 +13,8 @@ control
   dblclick [x y]              double click
   drag <x1> <y1> <x2> <y2>    press, move, release
   scroll <amount>             positive scrolls up, negative down
-  type <text...>              type at the keyboard
-  paste <text...>             paste via clipboard (any unicode)
+  type [--dry-run] [--] <text...>   type at the keyboard
+  paste [--dry-run] [--] <text...>  paste via clipboard (any unicode)
   key <combo>                 e.g. ctrl+c, alt+tab, super
   where                       print the pointer position
   geometry                    print the screen size
@@ -31,6 +31,19 @@ options
   -h, --help                  show this help`;
 
 const argv = Bun.argv.slice(2);
+
+export function usage(message: string): never {
+  console.error(`usage: ${message}`);
+  process.exit(1);
+}
+
+export function int(token: string | undefined, name: string): number {
+  const value = Number(token);
+  if (token === undefined || token === "" || !Number.isFinite(value)) {
+    usage(`mimic: <${name}> must be a number`);
+  }
+  return value;
+}
 
 function takeFlag(...names: string[]): boolean {
   for (const name of names) {
@@ -51,13 +64,29 @@ function takeOption(...names: string[]): string | undefined {
   return undefined;
 }
 
-function clickArgs(positions: string[], button: string, count: number): Record<string, unknown> {
+export function clickArgs(positions: string[], button: string, count: number): Record<string, unknown> {
   const args: Record<string, unknown> = { button, count };
+  if (positions.length === 1) {
+    usage("mimic click [x y] — pass both x and y or neither");
+  }
   if (positions.length >= 2) {
-    args.x = +positions[0];
-    args.y = +positions[1];
+    args.x = int(positions[0], "x");
+    args.y = int(positions[1], "y");
   }
   return args;
+}
+
+function freeText(rest: string[]): { text: string; dry: boolean } {
+  let dry = false;
+  let tokens = rest;
+  if (tokens[0] === "--dry-run") {
+    dry = true;
+    tokens = tokens.slice(1);
+  }
+  if (tokens[0] === "--") {
+    tokens = tokens.slice(1);
+  }
+  return { text: tokens.join(" "), dry };
 }
 
 async function daemon(sub: string | undefined) {
@@ -75,7 +104,11 @@ async function daemon(sub: string | undefined) {
       return;
     }
     case "log":
-      console.log((await Bun.file(LOG_PATH).text().catch(() => "")) || "(no actions logged yet)");
+      console.log(
+        (await Bun.file(LOG_PATH)
+          .text()
+          .catch(() => "")) || "(no actions logged yet)",
+      );
       return;
     default:
       console.error("usage: mimic daemon status|stop|log");
@@ -84,11 +117,23 @@ async function daemon(sub: string | undefined) {
 }
 
 async function main() {
+  const command = argv[0];
+
+  if (command === "type" || command === "paste") {
+    const { text, dry } = freeText(argv.slice(1));
+    if (text === "") {
+      usage(`mimic ${command} [--dry-run] [--] <text...>`);
+    }
+    const key = command === "type" ? "type" : "paste";
+    await call(key, { text }, { dry });
+    return;
+  }
+
   const help = takeFlag("-h", "--help");
   const dry = takeFlag("--dry-run");
   const button = takeOption("-b", "--button") ?? "left";
-  const count = Number(takeOption("-n", "--count") ?? "1");
-  const [command, ...rest] = argv;
+  const countOption = takeOption("-n", "--count");
+  const [, ...rest] = argv;
 
   if (help || !command) {
     console.log(HELP);
@@ -107,35 +152,53 @@ async function main() {
     case "shot":
       console.log(await call("shot", { path: rest[0] }, { dry }));
       return;
-    case "move":
-      await call("move", { x: +rest[0], y: +rest[1] }, { dry });
+    case "move": {
+      if (rest.length !== 2) {
+        usage("mimic move <x> <y>");
+      }
+      await call("move", { x: int(rest[0], "x"), y: int(rest[1], "y") }, { dry });
       return;
-    case "click":
+    }
+    case "click": {
+      const count = countOption !== undefined ? int(countOption, "count") : 1;
       await call("click", clickArgs(rest, button, count), { dry });
       return;
-    case "dblclick":
-      await call("click", clickArgs(rest, button, 2), { dry });
+    }
+    case "dblclick": {
+      const count = countOption !== undefined ? int(countOption, "count") : 2;
+      await call("click", clickArgs(rest, button, count), { dry });
       return;
-    case "drag":
-      await call("drag", { x1: +rest[0], y1: +rest[1], x2: +rest[2], y2: +rest[3], button }, { dry });
+    }
+    case "drag": {
+      if (rest.length !== 4) {
+        usage("mimic drag <x1> <y1> <x2> <y2>");
+      }
+      await call(
+        "drag",
+        { x1: int(rest[0], "x1"), y1: int(rest[1], "y1"), x2: int(rest[2], "x2"), y2: int(rest[3], "y2"), button },
+        { dry },
+      );
       return;
-    case "scroll":
-      await call("scroll", { amount: +rest[0] }, { dry });
+    }
+    case "scroll": {
+      if (rest.length !== 1) {
+        usage("mimic scroll <amount>");
+      }
+      await call("scroll", { amount: int(rest[0], "amount") }, { dry });
       return;
-    case "type":
-      await call("type", { text: rest.join(" ") }, { dry });
-      return;
-    case "paste":
-      await call("paste", { text: rest.join(" ") }, { dry });
-      return;
-    case "key":
+    }
+    case "key": {
+      if (!rest[0]) {
+        usage("mimic key <combo>");
+      }
       await call("key", { combo: rest[0] }, { dry });
       return;
+    }
     case "where":
-      console.log((await call("where") as number[]).join(" "));
+      console.log(((await call("where")) as number[]).join(" "));
       return;
     case "geometry":
-      console.log((await call("geometry") as number[]).join("x"));
+      console.log(((await call("geometry")) as number[]).join("x"));
       return;
     case "daemon":
       return daemon(rest[0]);
