@@ -16,25 +16,40 @@ function inspect(): Check[] {
   const { width, height } = screenSize();
 
   return [
-    { name: "wayland session", ok: session === "wayland", detail: session, critical: false,
-      hint: "mimic is tuned for Wayland; X11 is untested" },
-    { name: "uinput writable", ok: uinputWritable(), detail: "/dev/uinput", critical: true,
-      hint: "run: mimic setup" },
-    { name: "screenshot tool", ok: tool !== null, detail: tool ?? "none", critical: false,
-      hint: "install spectacle, grim or gnome-screenshot" },
-    { name: "clipboard paste", ok: clipboard !== null, detail: clipboard ?? "none", critical: false,
-      hint: "install wl-clipboard for `mimic paste`" },
+    {
+      name: "wayland session",
+      ok: session === "wayland",
+      detail: session,
+      critical: false,
+      hint: "mimic is tuned for Wayland; X11 is untested",
+    },
+    { name: "uinput writable", ok: uinputWritable(), detail: "/dev/uinput", critical: true, hint: "run: mimic setup" },
+    {
+      name: "screenshot tool",
+      ok: tool !== null,
+      detail: tool ?? "none",
+      critical: false,
+      hint: "install spectacle, grim or gnome-screenshot",
+    },
+    {
+      name: "clipboard paste",
+      ok: clipboard !== null,
+      detail: clipboard ?? "none",
+      critical: false,
+      hint: "install wl-clipboard for `mimic paste`",
+    },
     { name: "screen geometry", ok: true, detail: `${width}x${height}`, critical: false },
   ];
 }
 
 export function diagnose(): boolean {
-  for (const check of inspect()) {
+  const checks = inspect();
+  for (const check of checks) {
     const mark = check.ok ? "✓" : check.critical ? "✗" : "!";
     console.log(`  ${mark}  ${check.name.padEnd(18)} ${check.detail}`);
     if (!check.ok && check.hint) console.log(`         ↳ ${check.hint}`);
   }
-  const ready = inspect().filter((check) => check.critical).every((check) => check.ok);
+  const ready = checks.filter((check) => check.critical).every((check) => check.ok);
   console.log(ready ? "\nmimic is ready." : "\nmimic is not ready — fix the marks above.");
   return ready;
 }
@@ -60,22 +75,33 @@ export async function setup(): Promise<void> {
   }
 
   const user = Bun.env.USER ?? Bun.env.LOGNAME ?? "";
+  if (user === "") {
+    console.error("mimic: cannot determine current user (set $USER)");
+    process.exit(1);
+  }
+
   console.log("mimic setup will, using sudo:");
   console.log("  • load the uinput kernel module now and on every boot");
   console.log("  • install a udev rule giving the 'input' group access to /dev/uinput");
   console.log(`  • add ${user} to the 'input' group\n`);
+  console.log("security warning: members of the 'input' group can read all");
+  console.log("/dev/input/event* devices — this grants system-wide keylogging");
+  console.log("capability. Make sure you understand this trade-off.\n");
 
-  const steps =
-    (await sudo(["modprobe", "uinput"])) &&
-    (await sudo(["tee", MODULES_PATH], Buffer.from("uinput\n"))) &&
-    (await sudo(["tee", UDEV_PATH], Buffer.from(UDEV_RULE))) &&
-    (await sudo(["usermod", "-aG", "input", user])) &&
-    (await sudo(["udevadm", "control", "--reload-rules"])) &&
-    (await sudo(["udevadm", "trigger", "--subsystem-match=misc", "--action=add"]));
+  const steps: [label: string, run: () => Promise<boolean>][] = [
+    ["load uinput module", () => sudo(["modprobe", "uinput"])],
+    ["enable uinput on boot", () => sudo(["tee", MODULES_PATH], Buffer.from("uinput\n"))],
+    ["install udev rule", () => sudo(["tee", UDEV_PATH], Buffer.from(UDEV_RULE))],
+    ["add user to input group", () => sudo(["usermod", "-aG", "input", user])],
+    ["reload udev rules", () => sudo(["udevadm", "control", "--reload-rules"])],
+    ["retrigger uinput", () => sudo(["udevadm", "trigger", "--subsystem-match=misc", "--action=add"])],
+  ];
 
-  if (!steps) {
-    console.error("\nsetup failed — check the output above.");
-    process.exit(1);
+  for (const [label, run] of steps) {
+    if (!(await run())) {
+      console.error(`\nsetup failed at: ${label}`);
+      process.exit(1);
+    }
   }
 
   console.log("\nDone. Log out and back in for the group change to apply,");
