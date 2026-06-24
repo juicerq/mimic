@@ -85,6 +85,7 @@ mimic key ctrl+c                     # key combos
 mimic where                          # -> "960 540"
 mimic geometry                       # -> "1920x1080"
 
+mimic selftest                       # verify input reaches the kernel (real devices untouched)
 mimic <any command> --dry-run        # log the action without performing it
 mimic daemon status|stop|log         # manage the background daemon
 ```
@@ -107,6 +108,19 @@ const [x, y] = (await call("where")) as number[];
 For an in-process controller without the daemon, use the `Hands` class directly. Both
 are re-exported from the package entrypoint.
 
+## Verification
+
+`mimic selftest` proves the events actually travel through the kernel — without touching
+your real mouse or keyboard. It creates the virtual devices, then opens their
+`/dev/input/event*` nodes and takes an **exclusive `EVIOCGRAB`** on them, so the events
+`mimic` emits are intercepted before any compositor sees them. It then drives a known
+sequence (move, click, scroll, type) and reads the events back, asserting each one
+arrived intact. The grab is per-device, so your real input keeps working the whole time.
+
+```sh
+sudo mimic selftest   # reading event devices needs root, or membership in the input group
+```
+
 ## Architecture
 
 A handful of deep modules, each hiding one concern behind a small surface:
@@ -120,6 +134,7 @@ A handful of deep modules, each hiding one concern behind a small surface:
 | `desktop.ts`  | screenshots and screen geometry from the Wayland environment          |
 | `service.ts`  | the wire protocol, the daemon (`serve`) and the client (`call`)       |
 | `system.ts`   | `mimic doctor` and `mimic setup`                                      |
+| `selftest.ts` | grab-based loopback that verifies input reaches the kernel            |
 | `cli.ts`      | argument parsing and dispatch                                         |
 
 No native addons and no Python — just Bun calling libc directly.
