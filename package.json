@@ -14,7 +14,8 @@
     "test": "bun test",
     "lint": "oxlint",
     "format": "oxfmt src bin tests",
-    "format:check": "oxfmt --check src bin tests"
+    "format:check": "oxfmt --check src bin tests",
+    "selftest": "bun bin/mimic.ts selftest"
   },
   "files": [
     "bin",

@@ -1,3 +1,4 @@
+import { selftest } from "./selftest.ts";
 import { call, isRunning, LOG_PATH, serve } from "./service.ts";
 import { diagnose, setup } from "./system.ts";
 
@@ -22,6 +23,7 @@ control
 system
   doctor                      check the machine is ready
   setup                       grant uinput access (sudo, once)
+  selftest                    verify input reaches the kernel without moving real devices
   daemon status|stop|log      manage the background daemon
 
 options
@@ -148,6 +150,9 @@ async function main() {
       return;
     case "setup":
       return setup();
+    case "selftest":
+      process.exit((await selftest()) ? 0 : 1);
+      return;
 
     case "shot":
       console.log(await call("shot", { path: rest[0] }, { dry }));

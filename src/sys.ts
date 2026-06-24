@@ -63,6 +63,7 @@ const libc = (() => {
   const symbols = {
     open: { args: [FFIType.ptr, FFIType.i32, FFIType.i32], returns: FFIType.i32 },
     write: { args: [FFIType.i32, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
+    read: { args: [FFIType.i32, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
     close: { args: [FFIType.i32], returns: FFIType.i32 },
     ioctl: { args: [FFIType.i32, FFIType.u64, FFIType.u64], returns: FFIType.i32 },
     flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
@@ -109,6 +110,19 @@ export function write(fd: number, bytes: Uint8Array): void {
       throw new SysError("write", errno);
     }
     written += Number(ret);
+  }
+}
+
+export function readFd(fd: number, buffer: Uint8Array): number {
+  for (;;) {
+    const ret = libc.read(fd, buffer, BigInt(buffer.byteLength));
+    if (ret < 0n) {
+      const errno = lastErrno();
+      if (errno === EINTR) continue;
+      if (errno === EAGAIN || errno === EWOULDBLOCK) return 0;
+      throw new SysError("read", errno);
+    }
+    return Number(ret);
   }
 }
 
