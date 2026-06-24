@@ -6,8 +6,15 @@
   "bin": {
     "mimic": "bin/mimic.ts"
   },
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "oxlint",
+    "format": "oxfmt src bin tests",
+    "format:check": "oxfmt --check src bin tests"
   },
   "files": [
     "bin",
@@ -38,6 +45,8 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
+    "oxfmt": "^0.56.0",
+    "oxlint": "^1.71.0",
     "typescript": "^5"
   }
 }
