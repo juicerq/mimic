@@ -8,7 +8,7 @@ no synthetic-event fingerprint for anti-bots to catch.
 <p>
   <img alt="license" src="https://img.shields.io/badge/license-MIT-black">
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-black">
-  <img alt="platform" src="https://img.shields.io/badge/platform-Linux%20%2F%20Wayland-black">
+  <img alt="platform" src="https://img.shields.io/badge/Wayland-tested%20on%20KDE%2FKWin-black">
 </p>
 
 ```sh
@@ -60,6 +60,15 @@ in once for the group change to take effect, then:
 mimic doctor
 ```
 
+### Security: the `input` group
+
+`mimic setup` adds your user to the `input` group. Membership in that group grants
+**read access to every `/dev/input/event*` device** — that is, the ability to read
+keystrokes and pointer events from all real keyboards and mice on the system. In
+practice this is local keylogging capability. `mimic` itself only ever *writes* to a
+virtual device, but the group permission it relies on is broad. Understand this
+trade-off before running `mimic setup`, and don't grant it to untrusted accounts.
+
 ## Usage
 
 ```sh
@@ -87,7 +96,7 @@ holds the devices open and tracks the cursor so motion can stay relative to wher
 ## As a library
 
 ```ts
-import { call } from "mimic/src/service.ts";
+import { call, Hands } from "mimic";
 
 await call("move", { x: 960, y: 540 });
 await call("type", { text: "hello" });
@@ -95,7 +104,8 @@ const [x, y] = (await call("where")) as number[];
 ```
 
 `call()` autostarts the daemon on first use and speaks the same protocol the CLI does.
-For an in-process controller without the daemon, import the `Hands` class directly.
+For an in-process controller without the daemon, use the `Hands` class directly. Both
+are re-exported from the package entrypoint.
 
 ## Architecture
 
@@ -105,7 +115,7 @@ A handful of deep modules, each hiding one concern behind a small surface:
 | ------------- | --------------------------------------------------------------------- |
 | `sys.ts`      | the only `bun:ffi` boundary — `open` / `write` / `close` / `ioctl`    |
 | `codes.ts`    | input-event constants and the character → keystroke map               |
-| `uinput.ts`   | `VirtualDevice` — create, configure and feed a uinput device          |
+| `uinput.ts`   | `UinputDevice` — create, configure and feed a uinput device           |
 | `hands.ts`    | human-like mouse and keyboard on top of the devices                   |
 | `desktop.ts`  | screenshots and screen geometry from the Wayland environment          |
 | `service.ts`  | the wire protocol, the daemon (`serve`) and the client (`call`)       |
@@ -114,15 +124,18 @@ A handful of deep modules, each hiding one concern behind a small surface:
 
 No native addons and no Python — just Bun calling libc directly.
 
-## Verified, not assumed
+## Geometry detection
 
-Every primitive was checked against an independent oracle, not eyeballed. On KWin we
-load a tiny KWin script over D-Bus and read `workspace.cursorPos` back from the journal,
-so the position is reported by the **compositor itself** rather than by `mimic`:
+`mimic` needs the screen size to map absolute pointer coordinates. It resolves it in
+order:
 
-- `move` lands pixel-exact at the requested coordinate.
-- `click` activates real controls hit-tested by the compositor.
-- `type` and `paste` are read back verbatim, accents and all.
+1. `MIMIC_SCREEN` (e.g. `1920x1080`), if set.
+2. `kscreen-doctor -o` (KDE/KWin).
+3. `wlr-randr` (wlroots compositors).
+4. A `1920x1080` default — printed as a warning on stderr if nothing else resolved.
+
+If detection falls back to the default and your display is a different size, set
+`MIMIC_SCREEN` explicitly so coordinates land where you expect.
 
 ## Configuration
 
@@ -133,10 +146,25 @@ so the position is reported by the **compositor itself** rather than by `mimic`:
 
 ## Requirements
 
-- Linux with `uinput` (any modern kernel) and a Wayland session.
+- Linux with `uinput` (any modern kernel).
+- A **Wayland** session. `mimic` is developed and tested on **KDE/KWin**. Other Wayland
+  compositors may work — the input path (uinput → kernel → compositor) is compositor
+  agnostic — but geometry detection only ships KDE (`kscreen-doctor`) and wlroots
+  (`wlr-randr`) backends; elsewhere set `MIMIC_SCREEN` (see Geometry detection above).
+  X11 is not supported.
 - [Bun](https://bun.sh) ≥ 1.1.
 - A screenshot tool (`spectacle`, `grim` or `gnome-screenshot`) for `mimic shot`,
   and `wl-clipboard` for `mimic paste`. `mimic doctor` tells you what's missing.
+
+## Not yet
+
+Honest about what isn't here:
+
+- No compositor oracle — positions are not yet verified against the compositor (e.g. a
+  KWin script reporting `workspace.cursorPos`).
+- No X11 support.
+- No geometry backends for GNOME/Mutter or other compositors beyond KDE and wlroots.
+- CI runs the pure tests only; there is no privileged CI exercising real `/dev/uinput`.
 
 ## License
 
