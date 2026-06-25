@@ -90,6 +90,34 @@ mimic <any command> --dry-run        # log the action without performing it
 mimic daemon status|stop|log         # manage the background daemon
 ```
 
+### Seeing the screen
+
+`mimic` can find things and frame the screen, so an agent stops guessing coordinates by eye:
+
+```sh
+mimic find chest.png                 # -> "975 525" — center of the matched icon on screen
+mimic find chest.png --threshold 0.9 # require a stronger match (0..1, default 0.80)
+
+mimic window list                    # every window: class, geometry, title
+mimic window activate TaskBarHero    # focus the first window matching class or title
+
+mimic shot view.png --region 463,96,970,892   # crop to a rectangle
+mimic shot view.png --region 463,96,970,892 --zoom 2 --grid   # magnified, with a coordinate grid
+```
+
+`find` template-matches `<template.png>` against the current screen and prints the **center** of the
+best match in screen coordinates — ready to pipe into `mimic click`. It exits non-zero (and prints
+nothing) when nothing matches above the threshold.
+
+Coordinates can also be given **relative to a window**, as fractions `0..1` of its frame — no more
+recomputing offsets when a window moves:
+
+```sh
+mimic click --window TaskBarHero 0.5 0.9    # 50% across, 90% down that window
+mimic move  --window kitty 0 0              # its top-left corner
+mimic drag  --window kitty 0.1 0.1 0.9 0.9  # corner to corner
+```
+
 The first command starts a small background **daemon** and waits while the virtual
 devices warm up (~2.5s, paid once). Every command after that is instant — the daemon
 holds the devices open and tracks the cursor so motion can stay relative to where it is.
@@ -131,7 +159,8 @@ A handful of deep modules, each hiding one concern behind a small surface:
 | `codes.ts`    | input-event constants and the character → keystroke map               |
 | `uinput.ts`   | `UinputDevice` — create, configure and feed a uinput device           |
 | `hands.ts`    | human-like mouse and keyboard on top of the devices                   |
-| `desktop.ts`  | screenshots and screen geometry from the Wayland environment          |
+| `desktop.ts`  | screenshots, screen geometry, framing and template matching (`find`)  |
+| `window.ts`   | window listing, lookup and activation via KWin scripting              |
 | `service.ts`  | the wire protocol, the daemon (`serve`) and the client (`call`)       |
 | `system.ts`   | `mimic doctor` and `mimic setup`                                      |
 | `selftest.ts` | grab-based loopback that verifies input reaches the kernel            |
@@ -170,6 +199,11 @@ If detection falls back to the default and your display is a different size, set
 - [Bun](https://bun.sh) ≥ 1.1.
 - A screenshot tool (`spectacle`, `grim` or `gnome-screenshot`) for `mimic shot`,
   and `wl-clipboard` for `mimic paste`. `mimic doctor` tells you what's missing.
+- **ImageMagick** (`magick`) for `mimic find` and the `shot --region/--zoom/--grid`
+  framing — optional, only those commands need it.
+- `mimic find` and `mimic window` run **client-side**, not through the daemon — reading
+  the screen and querying KWin need no virtual devices, so they skip the warm-up. Window
+  management uses KWin scripting and so is KDE-only.
 
 ## Not yet
 

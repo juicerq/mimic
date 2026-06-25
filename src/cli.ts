@@ -1,6 +1,8 @@
+import { find, type Region, screenshot, type View } from "./desktop.ts";
 import { selftest } from "./selftest.ts";
 import { call, isRunning, LOG_PATH, serve } from "./service.ts";
 import { diagnose, setup } from "./system.ts";
+import { activateWindow, findWindow, listWindows } from "./window.ts";
 
 const HELP = `mimic — drive your computer like a human
 
@@ -20,6 +22,11 @@ control
   where                       print the pointer position
   geometry                    print the screen size
 
+perception
+  find <template.png>         print the on-screen center of a matched icon
+  window list                 list windows: class, geometry, caption
+  window activate <query>     focus the first window matching class or title
+
 system
   doctor                      check the machine is ready
   setup                       grant uinput access (sudo, once)
@@ -29,6 +36,11 @@ system
 options
   -b, --button <name>         left | right | middle (default left)
   -n, --count <n>             repeat count for click
+      --window <query>        treat move/click/drag coords as fractions (0..1) of that window
+      --region <x,y,w,h>      shot: crop to this rectangle
+      --zoom <n>              shot: magnify the capture n times
+      --grid                  shot: overlay a coordinate grid (in screen coords)
+      --threshold <n>         find: min match score, 0..1 (default 0.80)
       --dry-run               log the action without performing it
   -h, --help                  show this help`;
 
@@ -66,6 +78,22 @@ function takeOption(...names: string[]): string | undefined {
   return undefined;
 }
 
+export function parseRegion(s: string): Region | null {
+  const parts = s.split(",").map(Number);
+  if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return null;
+  const [x, y, width, height] = parts;
+  if (width <= 0 || height <= 0) return null;
+  return { x, y, width, height };
+}
+
+async function toAbsolute(query: string | undefined, positions: string[]): Promise<string[]> {
+  if (query === undefined) return positions;
+  const win = await findWindow(query);
+  return positions.map((p, i) =>
+    String(Math.round(i % 2 === 0 ? win.x + Number(p) * win.width : win.y + Number(p) * win.height)),
+  );
+}
+
 export function clickArgs(positions: string[], button: string, count: number): Record<string, unknown> {
   const args: Record<string, unknown> = { button, count };
   if (positions.length === 1) {
@@ -89,6 +117,27 @@ function freeText(rest: string[]): { text: string; dry: boolean } {
     tokens = tokens.slice(1);
   }
   return { text: tokens.join(" "), dry };
+}
+
+async function windowCommand(rest: string[]) {
+  switch (rest[0]) {
+    case "list":
+      for (const win of await listWindows()) {
+        const flag = win.active ? "*" : " ";
+        console.log(`${flag} ${win.class}\t${win.width}x${win.height}+${win.x}+${win.y}\t${win.caption}`);
+      }
+      return;
+    case "activate": {
+      if (!rest[1]) {
+        usage("mimic window activate <query>");
+      }
+      const win = await activateWindow(rest[1]);
+      console.log(`activated ${win.class} (${win.caption})`);
+      return;
+    }
+    default:
+      usage("mimic window list|activate <query>");
+  }
 }
 
 async function daemon(sub: string | undefined) {
@@ -135,6 +184,11 @@ async function main() {
   const dry = takeFlag("--dry-run");
   const button = takeOption("-b", "--button") ?? "left";
   const countOption = takeOption("-n", "--count");
+  const windowQuery = takeOption("--window");
+  const regionOption = takeOption("--region");
+  const zoomOption = takeOption("--zoom");
+  const grid = takeFlag("--grid");
+  const thresholdOption = takeOption("--threshold");
   const [, ...rest] = argv;
 
   if (help || !command) {
@@ -154,33 +208,58 @@ async function main() {
       process.exit((await selftest()) ? 0 : 1);
       return;
 
-    case "shot":
-      console.log(await call("shot", { path: rest[0] }, { dry }));
-      return;
-    case "move": {
-      if (rest.length !== 2) {
-        usage("mimic move <x> <y>");
+    case "shot": {
+      const view: View = {};
+      if (regionOption !== undefined) {
+        const region = parseRegion(regionOption);
+        if (!region) usage("mimic shot --region <x,y,w,h>");
+        view.region = region;
       }
-      await call("move", { x: int(rest[0], "x"), y: int(rest[1], "y") }, { dry });
+      if (zoomOption !== undefined) view.zoom = int(zoomOption, "zoom");
+      if (grid) view.grid = 100;
+      console.log(await screenshot(rest[0] ?? "/tmp/mimic-shot.png", view));
+      return;
+    }
+    case "find": {
+      if (!rest[0]) {
+        usage("mimic find <template.png>");
+      }
+      const hit = await find(rest[0], thresholdOption !== undefined ? int(thresholdOption, "threshold") : undefined);
+      if (!hit) {
+        console.error("mimic: no match");
+        process.exit(1);
+      }
+      console.log(`${hit.x} ${hit.y}`);
+      return;
+    }
+    case "window":
+      return windowCommand(rest);
+    case "move": {
+      const pos = await toAbsolute(windowQuery, rest);
+      if (pos.length !== 2) {
+        usage(windowQuery ? "mimic move --window <query> <fx> <fy>" : "mimic move <x> <y>");
+      }
+      await call("move", { x: int(pos[0], "x"), y: int(pos[1], "y") }, { dry });
       return;
     }
     case "click": {
       const count = countOption !== undefined ? int(countOption, "count") : 1;
-      await call("click", clickArgs(rest, button, count), { dry });
+      await call("click", clickArgs(await toAbsolute(windowQuery, rest), button, count), { dry });
       return;
     }
     case "dblclick": {
       const count = countOption !== undefined ? int(countOption, "count") : 2;
-      await call("click", clickArgs(rest, button, count), { dry });
+      await call("click", clickArgs(await toAbsolute(windowQuery, rest), button, count), { dry });
       return;
     }
     case "drag": {
-      if (rest.length !== 4) {
-        usage("mimic drag <x1> <y1> <x2> <y2>");
+      const pos = await toAbsolute(windowQuery, rest);
+      if (pos.length !== 4) {
+        usage(windowQuery ? "mimic drag --window <query> <fx1> <fy1> <fx2> <fy2>" : "mimic drag <x1> <y1> <x2> <y2>");
       }
       await call(
         "drag",
-        { x1: int(rest[0], "x1"), y1: int(rest[1], "y1"), x2: int(rest[2], "x2"), y2: int(rest[3], "y2"), button },
+        { x1: int(pos[0], "x1"), y1: int(pos[1], "y1"), x2: int(pos[2], "x2"), y2: int(pos[3], "y2"), button },
         { dry },
       );
       return;

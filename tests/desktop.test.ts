@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseEnv, parseKscreen, parseWlrRandr } from "../src/desktop.ts";
+import { type Gray, gridDraw, match, parseEnv, parseKscreen, parseWlrRandr } from "../src/desktop.ts";
 
 describe("parseEnv", () => {
   test("parses WxH", () => {
@@ -77,5 +77,60 @@ describe("parseWlrRandr", () => {
 
   test("rejects zero dimensions", () => {
     expect(parseWlrRandr("    0x0 px, 60 Hz (current)")).toBeNull();
+  });
+});
+
+describe("match", () => {
+  // a haystack with a distinctive 3x3 cross stamped at (5,4) on a noisy field
+  function haystack(): Gray {
+    const width = 16;
+    const height = 12;
+    const px = new Float64Array(width * height);
+    for (let i = 0; i < px.length; i++) px[i] = ((i * 37) % 11) / 40; // low-contrast varied background
+    const cross = [
+      [0, 1, 0],
+      [1, 1, 1],
+      [0, 1, 0],
+    ];
+    for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) px[(4 + j) * width + (5 + i)] = cross[j][i];
+    return { px, width, height };
+  }
+
+  const template: Gray = {
+    width: 3,
+    height: 3,
+    px: Float64Array.from([0, 1, 0, 1, 1, 1, 0, 1, 0]),
+  };
+
+  test("locates the template's center with a high score", () => {
+    const hit = match(haystack(), template);
+    expect(hit).not.toBeNull();
+    expect(hit!.x).toBe(6); // top-left 5 + (3>>1)=1
+    expect(hit!.y).toBe(5); // top-left 4 + 1
+    expect(hit!.score).toBeGreaterThan(0.9);
+  });
+
+  test("rejects a featureless template", () => {
+    const flat: Gray = { width: 3, height: 3, px: new Float64Array(9).fill(0.5) };
+    expect(match(haystack(), flat)).toBeNull();
+  });
+});
+
+describe("gridDraw", () => {
+  test("labels lines in original screen coords, offset by the region and scaled by zoom", () => {
+    const draw = gridDraw({ x: 100, y: 50, width: 200, height: 200 }, 2, 100);
+    // first vertical line is at original x=100 -> output px (100-100)*2 = 0, labelled 100
+    expect(draw).toContain("line 0,0 0,400");
+    expect(draw).toContain("text 2,14 '100'");
+    // next at x=200 -> (200-100)*2 = 200
+    expect(draw).toContain("line 200,0 200,400");
+    expect(draw).toContain("text 202,14 '200'");
+    // first horizontal line at original y=100 -> (100-50)*2 = 100
+    expect(draw).toContain("line 0,100 400,100");
+    expect(draw).toContain("text 2,114 '100'");
+  });
+
+  test("emits nothing when the region holds no grid multiple", () => {
+    expect(gridDraw({ x: 10, y: 10, width: 30, height: 30 }, 1, 100)).toBe("");
   });
 });

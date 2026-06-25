@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { clickArgs, int, usage } from "../src/cli.ts";
+import { clickArgs, int, parseRegion, usage } from "../src/cli.ts";
 
 afterEach(() => {
   mock.restore();
@@ -71,6 +71,20 @@ describe("clickArgs", () => {
     const { exited } = captureExit();
     expect(() => clickArgs(["foo", "bar"], "left", 1)).toThrow(/__exit_1/);
     expect(exited).toEqual([1]);
+  });
+});
+
+describe("parseRegion", () => {
+  test("parses x,y,w,h", () => {
+    expect(parseRegion("100,50,800,600")).toEqual({ x: 100, y: 50, width: 800, height: 600 });
+  });
+
+  test("rejects wrong arity, non-numbers and non-positive size", () => {
+    expect(parseRegion("100,50,800")).toBeNull();
+    expect(parseRegion("100,50,800,600,1")).toBeNull();
+    expect(parseRegion("a,b,c,d")).toBeNull();
+    expect(parseRegion("0,0,0,600")).toBeNull();
+    expect(parseRegion("0,0,800,0")).toBeNull();
   });
 });
 
