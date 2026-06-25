@@ -200,6 +200,7 @@ async function readGray(path: string): Promise<Gray> {
   const [width, height] = sized.stdout.toString().trim().split(" ").map(Number);
   if (!width || !height) throw new Error(`mimic: cannot read image '${path}'`);
   const raw = Bun.spawnSync(["magick", path, "-colorspace", "Gray", "-depth", "8", "gray:-"]).stdout;
+  if (raw.length < width * height) throw new Error(`mimic: cannot read image '${path}'`);
   const px = new Float64Array(width * height);
   for (let i = 0; i < px.length; i++) px[i] = raw[i] / 255;
   return { px, width, height };

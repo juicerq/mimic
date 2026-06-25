@@ -39,9 +39,9 @@ function inspect(): Check[] {
       hint: "install wl-clipboard for `mimic paste`",
     },
     {
-      name: "template match",
-      ok: Bun.which("compare") !== null,
-      detail: Bun.which("compare") ? "imagemagick" : "none",
+      name: "image tooling",
+      ok: Bun.which("magick") !== null,
+      detail: Bun.which("magick") ? "imagemagick" : "none",
       critical: false,
       hint: "install imagemagick for `mimic find` and shot --region/--zoom/--grid",
     },
