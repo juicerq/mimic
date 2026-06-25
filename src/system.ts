@@ -38,6 +38,13 @@ function inspect(): Check[] {
       critical: false,
       hint: "install wl-clipboard for `mimic paste`",
     },
+    {
+      name: "image tooling",
+      ok: Bun.which("magick") !== null,
+      detail: Bun.which("magick") ? "imagemagick" : "none",
+      critical: false,
+      hint: "install imagemagick for `mimic find` and shot --region/--zoom/--grid",
+    },
     { name: "screen geometry", ok: true, detail: `${width}x${height}`, critical: false },
   ];
 }

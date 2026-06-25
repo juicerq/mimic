@@ -1,5 +1,5 @@
 import { $ } from "bun";
-import { screenSize, screenshot } from "./desktop.ts";
+import { screenSize } from "./desktop.ts";
 import { type Button, Hands } from "./hands.ts";
 import { close as closeFd, flockExclusive, O_APPEND, O_CREAT, O_RDONLY, O_WRONLY, open, write } from "./sys.ts";
 import { uinputWritable } from "./uinput.ts";
@@ -125,8 +125,6 @@ async function dispatch(hands: Hands, req: Request): Promise<unknown> {
   const button = (args.button as Button) ?? "left";
 
   switch (req.action) {
-    case "shot":
-      return screenshot(typeof args.path === "string" ? args.path : "/tmp/mimic-shot.png");
     case "move":
       await hands.move(num("x"), num("y"));
       return [hands.x, hands.y];
