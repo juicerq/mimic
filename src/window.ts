@@ -96,14 +96,11 @@ export function listWindows(): Promise<Win[]> {
   return run("list", "");
 }
 
-export async function findWindow(query: string): Promise<Win> {
-  const [win] = await run("find", query);
+async function first(action: Action, query: string): Promise<Win> {
+  const [win] = await run(action, query);
   if (!win) throw new Error(`mimic: no window matching '${query}'`);
   return win;
 }
 
-export async function activateWindow(query: string): Promise<Win> {
-  const [win] = await run("activate", query);
-  if (!win) throw new Error(`mimic: no window matching '${query}'`);
-  return win;
-}
+export const findWindow = (query: string) => first("find", query);
+export const activateWindow = (query: string) => first("activate", query);
