@@ -50,6 +50,11 @@ describe("parseKscreen", () => {
   test("rejects zero geometry", () => {
     expect(parseKscreen("Geometry: 0,0 0x0")).toBeNull();
   });
+
+  test("strips ANSI color codes from real kscreen-doctor output", () => {
+    const out = "\x1b[01;33m\tGeometry: \x1b[0;0m0,0 1920x1080\n";
+    expect(parseKscreen(out)).toEqual({ width: 1920, height: 1080 });
+  });
 });
 
 describe("parseWlrRandr", () => {

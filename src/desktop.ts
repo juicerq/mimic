@@ -234,8 +234,12 @@ export function parseEnv(s: string): Size | null {
   return match ? size(+match[1], +match[2]) : null;
 }
 
+function stripAnsi(out: string): string {
+  return out.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 export function parseKscreen(out: string): Size | null {
-  const match = out.match(/Geometry:\s*\d+,\d+\s+(\d+)x(\d+)/);
+  const match = stripAnsi(out).match(/Geometry:\s*\d+,\d+\s+(\d+)x(\d+)/);
   return match ? size(+match[1], +match[2]) : null;
 }
 
